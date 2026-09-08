@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vercel + TiDB + Blob Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        .user-list, .post-list {
+            margin-top: 20px;
+        }
+        .user-item, .post-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .user-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #667eea;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 20px;
+        }
+        .post-image {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        .hidden {
+            display: none;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            background: #4caf50;
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎉 Vercel + TiDB + Blob Demo</h1>
+
+        <!-- 用户登录/注册 -->
+        <div class="card" id="authCard">
+            <h2>👤 用户登录/注册</h2>
+            <div id="loginForm">
+                <div class="form-group">
+                    <label>邮箱</label>
+                    <input type="email" id="loginEmail" placeholder="请输入邮箱">
+                </div>
+                <div class="form-group">
+                    <label>姓名</label>
+                    <input type="text" id="loginName" placeholder="请输入姓名">
+                </div>
+                <button onclick="login()">登录 / 注册</button>
+            </div>
+            <div id="userInfo" class="hidden">
+                <p>欢迎, <span id="userName"></span>!</p>
+                <p>邮箱: <span id="userEmail"></span></p>
+                <p>用户 ID: <span id="userId"></span></p>
+                <button onclick="logout()" style="background: #f44336; margin-top: 10px;">退出登录</button>
+            </div>
+        </div>
+
+        <!-- 发布帖子 -->
+        <div class="card" id="postCard" class="hidden">
+            <h2>📝 发布新帖子</h2>
+            <div class="form-group">
+                <label>内容</label>
+                <textarea id="postContent" rows="4" placeholder="写点什么..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>上传图片</label>
+                <input type="file" id="postImage" accept="image/*">
+            </div>
+            <button onclick="createPost()">发布帖子</button>
+        </div>
+
+        <!-- 用户列表 -->
+        <div class="card">
+            <h2>👥 用户列表</h2>
+            <div id="userList" class="user-list"></div>
+        </div>
+
+        <!-- 帖子列表 -->
+        <div class="card">
+            <h2>📢 帖子列表</h2>
+            <div id="postList" class="post-list"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        // 显示通知
+        function showNotification(message) {
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        // 登录/注册
+        async function login() {
+            const email = document.getElementById('loginEmail').value;
+            const name = document.getElementById('loginName').value;
+
+            if (!email || !name) {
+                showNotification('请填写邮箱和姓名');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, name })
+                });
+
+                if (response.ok) {
+                    currentUser = await response.json();
+                    document.getElementById('loginForm').classList.add('hidden');
+                    document.getElementById('userInfo').classList.remove('hidden');
+                    document.getElementById('userName').textContent = currentUser.name;
+                    document.getElementById('userEmail').textContent = currentUser.email;
+                    document.getElementById('userId').textContent = currentUser.id;
+                    document.getElementById('postCard').classList.remove('hidden');
+                    showNotification('登录成功!');
+                    loadUsers();
+                    loadPosts();
+                } else {
+                    const error = await response.json();
+                    showNotification('登录失败: ' + error.error);
+                }
+            } catch (error) {
+                showNotification('登录失败: ' + error.message);
+            }
+        }
+
+        // 退出登录
+        async function logout() {
+            currentUser = null;
+            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById('userInfo').classList.add('hidden');
+            document.getElementById('postCard').classList.add('hidden');
+            document.getElementById('loginEmail').value = '';
+            document.getElementById('loginName').value = '';
+            showNotification('已退出登录');
+        }
+
+        // 上传图片
+        async function uploadImage(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/api/blob/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                return data.url;
+            } else {
+                throw new Error('图片上传失败');
+            }
+        }
+
+        // 创建帖子
+        async function createPost() {
+            const content = document.getElementById('postContent').value;
+            const imageInput = document.getElementById('postImage');
+            const imageUrl = await uploadImage(imageInput.files[0]);
+
+            try {
+                const response = await fetch('/api/posts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: currentUser.id,
+                        content,
+                        image_url: imageUrl
+                    })
+                });
+
+                if (response.ok) {
+                    document.getElementById('postContent').value = '';
+                    document.getElementById('postImage').value = '';
+                    showNotification('帖子发布成功!');
+                    loadPosts();
+                } else {
+                    const error = await response.json();
+                    showNotification('发布失败: ' + error.error);
+                }
+            } catch (error) {
+                showNotification('发布失败: ' + error.message);
+            }
+        }
+
+        // 加载用户列表
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users');
+                const users = await response.json();
+                const userList = document.getElementById('userList');
+                userList.innerHTML = users.map(user => `
+                    <div class="user-item">
+                        <div class="user-avatar">${user.name.charAt(0).toUpperCase()}</div>
+                        <div style="margin-left: 10px;">
+                            <strong>${user.name}</strong>
+                            <p>${user.email}</p>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('加载用户列表失败:', error);
+            }
+        }
+
+        // 加载帖子列表
+        async function loadPosts() {
+            try {
+                const response = await fetch('/api/posts');
+                const posts = await response.json();
+                const postList = document.getElementById('postList');
+                postList.innerHTML = posts.map(post => `
+                    <div class="post-item">
+                        <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                            <div class="user-avatar" style="width: 35px; height: 35px; font-size: 14px;">
+                                ${post.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div style="margin-left: 10px;">
+                                <strong>${post.name}</strong>
+                                <small style="color: #999;">${new Date(post.created_at).toLocaleString()}</small>
+                            </div>
+                        </div>
+                        <p>${post.content}</p>
+                        ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="帖子图片">` : ''}
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('加载帖子列表失败:', error);
+            }
+        }
+
+        // 初始化
+        loadUsers();
+        loadPosts();
+    </script>
+</body>
+</html>
