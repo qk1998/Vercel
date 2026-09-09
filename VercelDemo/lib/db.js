@@ -7,6 +7,7 @@ const pool = mysql.createPool({
   password: process.env.TIDB_PASSWORD,
   database: process.env.TIDB_DATABASE,
   waitForConnections: true,
+  ssl: { rejectUnauthorized: true },
   connectionLimit: 10,
   queueLimit: 0
 });
